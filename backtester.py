@@ -2,12 +2,11 @@ from data import fetch_data
 from indicators import add_indicators
 from strategy import check_signal
 from execution import ExecutionEngine
-from config import CAPITAL, RISK_PER_TRADE, INTERVAL, PERIOD_BACKTEST
+from config import *
 from datetime import time
 
 def backtest(symbol):
     df = fetch_data(symbol, INTERVAL, PERIOD_BACKTEST)
-
     if df.empty or len(df) < 100:
         return []
 
@@ -22,20 +21,20 @@ def backtest(symbol):
             entry = df.iloc[i]["Close"]
             sl = df.iloc[i]["Low"]
             risk = entry - sl
-            if risk <= 0:
-                continue
+            if risk <= 0: continue
 
             qty = int((CAPITAL * RISK_PER_TRADE) // risk)
-            if qty <= 0:
-                continue
+            if qty <= 0: continue
 
             exec_price = executor.execute_buy(entry, qty)
 
             trade = {
+                "symbol": symbol,
                 "entry": exec_price,
                 "sl": sl,
                 "qty": qty,
-                "entry_time": df.index[i]
+                "entry_time": df.index[i],
+                "mode": "BACKTEST"
             }
             in_trade = True
 
@@ -45,6 +44,7 @@ def backtest(symbol):
                 exit_price = trade["sl"] if low <= trade["sl"] else df.iloc[i]["Close"]
                 trade["exit"] = exit_price
                 trade["pnl"] = (exit_price - trade["entry"]) * trade["qty"]
+                trade["invested"] = trade["entry"] * trade["qty"]
                 trades.append(trade)
                 in_trade = False
 

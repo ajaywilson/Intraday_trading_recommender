@@ -1,0 +1,5 @@
+reports/
+*.csv
+*.png
+__pycache__/
+.env

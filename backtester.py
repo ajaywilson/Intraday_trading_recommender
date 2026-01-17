@@ -5,26 +5,41 @@ from execution import ExecutionEngine
 from config import *
 from datetime import time
 
+
 def backtest(symbol):
     df = fetch_data(symbol, INTERVAL, PERIOD_BACKTEST)
+
     if df.empty or len(df) < 100:
         return []
 
-    df = add_indicators(df).dropna()
+    df = add_indicators(df).dropna().copy()
+
     executor = ExecutionEngine()
-
     trades = []
-    in_trade = False
 
-    for i in range(30, len(df)):
+    in_trade = False
+    trade = None
+
+    # We stop at len(df)-2 because we use i+1 candle for exit logic
+    for i in range(30, len(df) - 1):
+
+        # -------------------------
+        # ENTRY LOGIC (at candle i close)
+        # -------------------------
         if not in_trade and check_signal(df, i):
-            entry = df.iloc[i]["Close"]
-            sl = df.iloc[i]["Low"]
+
+            entry = float(df.iloc[i]["Close"])
+            sl = float(df.iloc[i]["Low"])
             risk = entry - sl
-            if risk <= 0: continue
+
+            # Invalid risk (protective)
+            if risk <= 0:
+                continue
 
             qty = int((CAPITAL * RISK_PER_TRADE) // risk)
-            if qty <= 0: continue
+
+            if qty <= 0:
+                continue
 
             exec_price = executor.execute_buy(entry, qty)
 
@@ -36,16 +51,39 @@ def backtest(symbol):
                 "entry_time": df.index[i],
                 "mode": "BACKTEST"
             }
-            in_trade = True
 
+            in_trade = True
+            continue   # CRITICAL: do NOT allow exit on same candle
+
+        # -------------------------
+        # EXIT LOGIC (only future candles)
+        # -------------------------
         if in_trade:
-            low = df.iloc[i]["Low"]
-            if low <= trade["sl"] or df.index[i].time() >= time(15, 15):
-                exit_price = trade["sl"] if low <= trade["sl"] else df.iloc[i]["Close"]
-                trade["exit"] = exit_price
-                trade["pnl"] = (exit_price - trade["entry"]) * trade["qty"]
-                trade["invested"] = trade["entry"] * trade["qty"]
-                trades.append(trade)
-                in_trade = False
+
+            next_low = float(df.iloc[i + 1]["Low"])
+            next_close = float(df.iloc[i + 1]["Close"])
+            next_time = df.index[i + 1].time()
+
+            # Stop loss hit
+            if next_low <= trade["sl"]:
+                exit_price = trade["sl"]
+
+            # End of day exit (after 15:15 candle)
+            elif next_time >= time(15, 15):
+                exit_price = next_close
+
+            else:
+                continue  # still holding trade
+
+            # Finalize trade
+            trade["exit"] = exit_price
+            trade["pnl"] = (exit_price - trade["entry"]) * trade["qty"]
+            trade["invested"] = trade["entry"] * trade["qty"]
+
+            trades.append(trade)
+
+            # Reset state
+            in_trade = False
+            trade = None
 
     return trades

@@ -10,7 +10,8 @@ from reporting import (
     daily_report,
     weekly_plot,
     monthly_report,
-    divergence_alert
+    divergence_alert,
+    backtest_metrics
 )
 from telegram_bot import send_message
 
@@ -67,31 +68,8 @@ def already_ran_today(filepath):
     return False
 
 
-def send_summary(mode, scanned, signals):
-    today = datetime.now().strftime("%Y-%m-%d")
-
-    # Avoid duplicate summary in same day
-    if os.path.exists(SUMMARY_FILE):
-        with open(SUMMARY_FILE) as f:
-            if f.read().strip() == today:
-                return
-
-    msg = (
-        f"📌 Run Summary\n"
-        f"Mode: {mode}\n"
-        f"Stocks scanned: {scanned}\n"
-        f"Signals generated: {signals}\n"
-        f"Time: {datetime.now().strftime('%H:%M:%S')}"
-    )
-
-    send_message(msg)
-
-    with open(SUMMARY_FILE, "w") as f:
-        f.write(today)
-
-
 # -----------------------------
-# Main Logic
+# Main
 # -----------------------------
 MODE = get_mode()
 print("Running in mode:", MODE)
@@ -103,30 +81,32 @@ stocks_scanned = len(SYMBOLS)
 
 
 # -----------------------------
-# LIVE MODE (Weekdays)
+# LIVE MODE
 # -----------------------------
 if MODE == "LIVE":
 
-    # Scan during market hours
     if is_market_hours():
         for s in SYMBOLS:
-            if scan(s):   # <-- assumes scan returns True when signal occurs
+            if scan(s):
                 signals_today += 1
 
-    # After market close
+    # After market close → reports
     if datetime.now().time() > time(15, 31):
 
-        # Send reports once
         if not already_ran_today(DAILY_REPORT_FILE):
             daily_report()
             divergence_alert()
 
-            # Send summary once per day
-            send_summary(MODE, stocks_scanned, signals_today)
+            send_message(
+                f"📌 Run Summary\n"
+                f"Mode: LIVE\n"
+                f"Stocks scanned: {stocks_scanned}\n"
+                f"Signals generated: {signals_today}"
+            )
 
 
 # -----------------------------
-# BACKTEST MODE (Weekends)
+# BACKTEST MODE
 # -----------------------------
 elif MODE == "BACKTEST":
 
@@ -142,14 +122,27 @@ elif MODE == "BACKTEST":
 
     save_trades(all_trades)
 
-    # Sunday → weekly report
+    # Weekly report on Sunday
     if datetime.now().weekday() == 6:
         weekly_plot()
 
-    # Month end → monthly report
+    # Monthly report on month-end
     tomorrow = datetime.now() + timedelta(days=1)
     if tomorrow.day == 1:
         monthly_report()
 
-    # Weekend summary
-    send_summary(MODE, stocks_scanned, len(all_trades))
+    # -------- Performance summary --------
+    metrics = backtest_metrics(all_trades)
+
+    if metrics:
+        msg = (
+            f"📌 Backtest Summary\n"
+            f"Trades simulated: {metrics['trades']}\n"
+            f"Total P&L: ₹ {metrics['total_pnl']}\n"
+            f"Win rate: {metrics['win_rate']}%\n"
+            f"Avg P&L per trade: ₹ {metrics['avg_pnl']}\n"
+            f"Max drawdown: ₹ {metrics['max_dd']}"
+        )
+        send_message(msg)
+    else:
+        send_message("📌 Backtest Summary\nNo trades generated.")

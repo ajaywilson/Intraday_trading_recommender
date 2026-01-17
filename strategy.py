@@ -2,6 +2,7 @@ from datetime import time
 import yfinance as yf
 import pandas as pd
 
+# Cache for NIFTY data
 _nifty_cache = None
 
 
@@ -17,8 +18,6 @@ def get_nifty_df(interval="5m", period="15d"):
         return None
 
     df["EMA20"] = df["Close"].ewm(span=20, adjust=False).mean()
-
-    # Ensure sorted index
     df = df.sort_index()
 
     _nifty_cache = df
@@ -26,15 +25,10 @@ def get_nifty_df(interval="5m", period="15d"):
 
 
 def is_market_bullish(ts):
-    """
-    Returns True if NIFTY is bullish at or just before timestamp ts
-    """
     nifty = get_nifty_df()
-
     if nifty is None or nifty.empty:
         return False
 
-    # Find nearest earlier timestamp
     try:
         idx = nifty.index.get_indexer([ts], method="ffill")[0]
         if idx == -1:
@@ -42,34 +36,44 @@ def is_market_bullish(ts):
 
         row = nifty.iloc[idx]
         return float(row["Close"]) > float(row["EMA20"])
-
     except Exception:
         return False
+
+
+def get_opening_range(df):
+    """
+    Returns OR high and low from 09:15 to 09:30
+    """
+    or_df = df.between_time("09:15", "09:30")
+
+    if len(or_df) < 3:  # Need at least 3 candles of 5m data
+        return None, None
+
+    return or_df["High"].max(), or_df["Low"].min()
 
 
 def check_signal(df, i):
     row = df.iloc[i]
     ts = df.index[i]
-
-    # -------------------------
-    # 1. Time filter (09:20–11:30)
-    # -------------------------
     t = ts.time()
-    if not (time(9, 20) <= t <= time(11, 30)):
+
+    # Only trade between 09:30 and 11:30
+    if not (time(9, 30) <= t <= time(11, 30)):
         return False
 
-    # -------------------------
-    # 2. Market trend filter
-    # -------------------------
+    # Market must be bullish
     if not is_market_bullish(ts):
         return False
 
-    # -------------------------
-    # 3. Original entry logic
-    # -------------------------
-    return (
-        row["Close"] > row["VWAP"] and
-        row["EMA9"] > row["EMA20"] and
-        row["Volume"] > df["Volume"].rolling(20).mean().iloc[i] and
-        row["Close"] > df["High"].rolling(10).max().iloc[i - 1]
-    )
+    # Get opening range
+    or_high, or_low = get_opening_range(df)
+
+    if or_high is None:
+        return False
+
+    # Conditions for breakout
+    bullish_candle = row["Close"] > row["Open"]
+    volume_ok = row["Volume"] > df["Volume"].rolling(20).mean().iloc[i]
+    breakout = row["Close"] > or_high
+
+    return bullish_candle and volume_ok and breakout

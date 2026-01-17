@@ -25,6 +25,7 @@ os.makedirs(REPORT_DIR, exist_ok=True)
 HEARTBEAT_FILE = os.path.join(REPORT_DIR, "heartbeat.txt")
 LAST_BACKTEST_FILE = os.path.join(REPORT_DIR, "last_backtest.txt")
 DAILY_REPORT_FILE = os.path.join(REPORT_DIR, "daily_report.txt")
+SUMMARY_FILE = os.path.join(REPORT_DIR, "summary.txt")
 
 
 # -----------------------------
@@ -36,7 +37,6 @@ def is_market_hours():
 
 
 def get_mode():
-    # Weekend = backtest, Weekday = live
     return "BACKTEST" if datetime.now().weekday() >= 5 else "LIVE"
 
 
@@ -46,7 +46,7 @@ def send_daily_heartbeat(mode):
     if os.path.exists(HEARTBEAT_FILE):
         with open(HEARTBEAT_FILE) as f:
             if f.read().strip() == today:
-                return  # already sent today
+                return
 
     send_message(f"🤖 Bot running normally in {mode} mode")
     with open(HEARTBEAT_FILE, "w") as f:
@@ -67,14 +67,39 @@ def already_ran_today(filepath):
     return False
 
 
+def send_summary(mode, scanned, signals):
+    today = datetime.now().strftime("%Y-%m-%d")
+
+    # Avoid duplicate summary in same day
+    if os.path.exists(SUMMARY_FILE):
+        with open(SUMMARY_FILE) as f:
+            if f.read().strip() == today:
+                return
+
+    msg = (
+        f"📌 Run Summary\n"
+        f"Mode: {mode}\n"
+        f"Stocks scanned: {scanned}\n"
+        f"Signals generated: {signals}\n"
+        f"Time: {datetime.now().strftime('%H:%M:%S')}"
+    )
+
+    send_message(msg)
+
+    with open(SUMMARY_FILE, "w") as f:
+        f.write(today)
+
+
 # -----------------------------
 # Main Logic
 # -----------------------------
 MODE = get_mode()
 print("Running in mode:", MODE)
 
-# Send heartbeat only once per day
 send_daily_heartbeat(MODE)
+
+signals_today = 0
+stocks_scanned = len(SYMBOLS)
 
 
 # -----------------------------
@@ -82,16 +107,22 @@ send_daily_heartbeat(MODE)
 # -----------------------------
 if MODE == "LIVE":
 
-    # Scan every 5 min during market hours
+    # Scan during market hours
     if is_market_hours():
         for s in SYMBOLS:
-            scan(s)
+            if scan(s):   # <-- assumes scan returns True when signal occurs
+                signals_today += 1
 
-    # After market close → send daily report once
+    # After market close
     if datetime.now().time() > time(15, 31):
+
+        # Send reports once
         if not already_ran_today(DAILY_REPORT_FILE):
             daily_report()
             divergence_alert()
+
+            # Send summary once per day
+            send_summary(MODE, stocks_scanned, signals_today)
 
 
 # -----------------------------
@@ -99,12 +130,11 @@ if MODE == "LIVE":
 # -----------------------------
 elif MODE == "BACKTEST":
 
-    # Run backtest only once per day
     if already_ran_today(LAST_BACKTEST_FILE):
         print("Backtest already ran today. Skipping.")
         exit()
 
-    print("Running backtest on all symbols...")
+    print("Running backtest...")
 
     all_trades = []
     for s in SYMBOLS:
@@ -116,7 +146,10 @@ elif MODE == "BACKTEST":
     if datetime.now().weekday() == 6:
         weekly_plot()
 
-    # Last day of month → monthly report
+    # Month end → monthly report
     tomorrow = datetime.now() + timedelta(days=1)
     if tomorrow.day == 1:
         monthly_report()
+
+    # Weekend summary
+    send_summary(MODE, stocks_scanned, len(all_trades))

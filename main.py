@@ -13,6 +13,9 @@ from reporting import (
     backtest_metrics
 )
 from telegram_bot import send_message
+from storage import save_trades
+from performance import cumulative_metrics
+
 
 SYMBOLS = get_universe()
 
@@ -62,43 +65,55 @@ if MODE == "LIVE":
             f"Signals generated: {signals_today}"
         )
 
-
 # -------------------
 # BACKTEST MODE
 # -------------------
 else:
     print("Running weekend backtest...")
 
-    # ---- Normal backtest using configured RR ----
     all_trades = []
     for s in SYMBOLS:
         all_trades.extend(backtest(s))
 
+    # Save trades permanently
     save_trades(all_trades)
 
+    # Normal backtest metrics (this run only)
     metrics = backtest_metrics(all_trades)
 
+    msg = ""
     if metrics:
-        msg = (
-            f"📌 Backtest Summary (RR={RR})\n"
-            f"Trades simulated: {metrics['trades']}\n"
-            f"Total P&L: ₹ {metrics['total_pnl']}\n"
+        msg += (
+            f"📌 Backtest Summary (this run, RR={RR})\n"
+            f"Trades: {metrics['trades']}\n"
+            f"P&L: ₹ {metrics['total_pnl']}\n"
             f"Win rate: {metrics['win_rate']}%\n"
-            f"Avg P&L per trade: ₹ {metrics['avg_pnl']}\n"
-            f"Max drawdown: ₹ {metrics['max_dd']}\n\n"
+            f"Avg P&L: ₹ {metrics['avg_pnl']}\n"
+            f"Max DD: ₹ {metrics['max_dd']}\n\n"
         )
-    else:
-        msg = "📌 Backtest Summary\nNo trades generated.\n\n"
 
-    # ---- RR Optimization table ----
+    # Cumulative performance across ALL days
+    cum = cumulative_metrics()
+
+    if cum:
+        msg += (
+            f"📈 Cumulative Paper Trading Performance\n"
+            f"Total trades: {cum['trades']}\n"
+            f"Total P&L: ₹ {cum['total_pnl']}\n"
+            f"Win rate: {cum['win_rate']}%\n"
+            f"Avg P&L/trade: ₹ {cum['avg_pnl']}\n"
+            f"Max drawdown: ₹ {cum['max_dd']}\n\n"
+        )
+
+    # RR Optimization
     rr_results = optimize_rr(SYMBOLS)
 
     msg += "📊 RR Optimization Table\nRR | Trades | Win% | P&L\n"
-
     for r in rr_results:
         msg += f"{r['rr']} | {r['trades']} | {r['win_rate']} | ₹{r['pnl']}\n"
 
     send_message(msg)
+
 
     # Weekly / monthly reports
     if datetime.now().weekday() == 6:
@@ -107,3 +122,4 @@ else:
     tomorrow = datetime.now() + timedelta(days=1)
     if tomorrow.day == 1:
         monthly_report()
+

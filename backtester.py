@@ -83,8 +83,10 @@ def _run_backtest(symbol, rr):
                 continue
 
             trade["exit"] = exit_price
+            trade["exit_time"] = df.index[i + 1]
             trade["pnl"] = (exit_price - trade["entry"]) * trade["qty"]
             trade["invested"] = trade["entry"] * trade["qty"]
+            trade["rr"] = rr
 
             trades.append(trade)
 
@@ -123,3 +125,4 @@ def optimize_rr(symbols):
         })
 
     return results
+

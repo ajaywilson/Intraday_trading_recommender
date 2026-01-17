@@ -6,6 +6,7 @@ from live_scanner import scan
 from reporting import *
 from telegram_bot import send_message
 
+
 SYMBOLS = get_universe()
 
 def is_market_hours():
@@ -34,3 +35,5 @@ elif MODE == "BACKTEST":
 
     if (datetime.now() + timedelta(days=1)).day == 1:
         monthly_report()
+        
+send_message(f"🤖 Bot executed successfully in {MODE} mode")

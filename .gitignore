@@ -1,5 +1,6 @@
 reports/
 *.csv
+!trades_log.csv
 *.png
 __pycache__/
 .env

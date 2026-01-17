@@ -20,24 +20,23 @@ def backtest(symbol):
     in_trade = False
     trade = None
 
-    # We stop at len(df)-2 because we use i+1 candle for exit logic
+    # Loop until second last candle because we use i+1 for execution
     for i in range(30, len(df) - 1):
 
-        # -------------------------
-        # ENTRY LOGIC (at candle i close)
-        # -------------------------
+        # ------------------------
+        # ENTRY (on candle i close)
+        # ------------------------
         if not in_trade and check_signal(df, i):
 
             entry = float(df.iloc[i]["Close"])
             sl = float(df.iloc[i]["Low"])
             risk = entry - sl
 
-            # Invalid risk (protective)
+            # Skip bad trades
             if risk <= 0:
                 continue
 
             qty = int((CAPITAL * RISK_PER_TRADE) // risk)
-
             if qty <= 0:
                 continue
 
@@ -53,27 +52,36 @@ def backtest(symbol):
             }
 
             in_trade = True
-            continue   # CRITICAL: do NOT allow exit on same candle
+            continue  # IMPORTANT: don't allow exit on same candle
 
-        # -------------------------
-        # EXIT LOGIC (only future candles)
-        # -------------------------
+        # ------------------------
+        # EXIT LOGIC (future candles only)
+        # ------------------------
         if in_trade:
 
             next_low = float(df.iloc[i + 1]["Low"])
+            next_high = float(df.iloc[i + 1]["High"])
             next_close = float(df.iloc[i + 1]["Close"])
             next_time = df.index[i + 1].time()
+
+            # Risk and target
+            risk = trade["entry"] - trade["sl"]
+            target = trade["entry"] + 1.5 * risk
 
             # Stop loss hit
             if next_low <= trade["sl"]:
                 exit_price = trade["sl"]
 
-            # End of day exit (after 15:15 candle)
+            # Target hit
+            elif next_high >= target:
+                exit_price = target
+
+            # End of day exit
             elif next_time >= time(15, 15):
                 exit_price = next_close
 
             else:
-                continue  # still holding trade
+                continue  # still in trade
 
             # Finalize trade
             trade["exit"] = exit_price
